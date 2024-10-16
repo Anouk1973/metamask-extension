@@ -1,9 +1,10 @@
-import { Address } from '@metamask/snaps-sdk';
+import { AddressElement } from '@metamask/snaps-sdk/jsx';
 import { UIComponentFactory } from './types';
 
-export const address: UIComponentFactory<Address> = ({ element }) => ({
-  element: 'ConfirmInfoRowAddress',
+export const address: UIComponentFactory<AddressElement> = ({ element }) => ({
+  element: 'SnapUIAddress',
   props: {
-    address: element.value,
+    address: element.props.address,
+    diameter: 16,
   },
 });

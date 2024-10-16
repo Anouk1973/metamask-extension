@@ -1,11 +1,5 @@
 import classnames from 'classnames';
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { Content, Header, Page } from '../page';
@@ -28,53 +22,46 @@ import {
   TextColor,
   TextVariant,
 } from '../../../../helpers/constants/design-system';
-import { DEFAULT_ROUTE } from '../../../../helpers/constants/routes';
+import {
+  DEFAULT_ROUTE,
+  REVIEW_PERMISSIONS,
+} from '../../../../helpers/constants/routes';
 import {
   getOnboardedInThisUISession,
   getShowPermissionsTour,
-  getConnectedSitesList,
-  getConnectedSnapsList,
+  getConnectedSitesListWithNetworkInfo,
 } from '../../../../selectors';
-import { Tab, Tabs } from '../../../ui/tabs';
 import { ProductTour } from '../../product-tour-popover';
 import { hidePermissionsTour } from '../../../../store/actions';
+import { isSnapId } from '../../../../helpers/utils/snaps';
 import { ConnectionListItem } from './connection-list-item';
-
-const TABS_THRESHOLD = 5;
 
 export const PermissionsPage = () => {
   const t = useI18nContext();
   const history = useHistory();
   const headerRef = useRef();
   const [totalConnections, setTotalConnections] = useState(0);
-  const sitesConnectionsList = useSelector(getConnectedSitesList);
-  const snapsConnectionsList = useSelector(getConnectedSnapsList);
+  const sitesConnectionsList = useSelector(
+    getConnectedSitesListWithNetworkInfo,
+  );
   const showPermissionsTour = useSelector(getShowPermissionsTour);
   const onboardedInThisUISession = useSelector(getOnboardedInThisUISession);
 
   useEffect(() => {
-    setTotalConnections(
-      Object.keys(sitesConnectionsList).length +
-        Object.keys(snapsConnectionsList).length,
-    );
-  }, [sitesConnectionsList, snapsConnectionsList]);
+    setTotalConnections(Object.keys(sitesConnectionsList).length);
+  }, [sitesConnectionsList]);
 
-  const shouldShowTabsView = useMemo(() => {
-    return (
-      totalConnections > TABS_THRESHOLD &&
-      Object.keys(sitesConnectionsList).length > 0 &&
-      Object.keys(snapsConnectionsList).length > 0
-    );
-  }, [totalConnections, sitesConnectionsList, snapsConnectionsList]);
+  const handleConnectionClick = (connection) => {
+    const hostName = connection.origin;
+    const safeEncodedHost = encodeURIComponent(hostName);
 
-  const handleConnectionClick = useCallback((connection) => {
-    // TODO: go to connection details page
-    console.log('connection clicked: ', connection);
-  }, []);
+    history.push(`${REVIEW_PERMISSIONS}/${safeEncodedHost}`);
+  };
 
   const renderConnectionsList = (connectionList) =>
     Object.entries(connectionList).map(([itemKey, connection]) => {
-      return (
+      const isSnap = isSnapId(connection.origin);
+      return isSnap ? null : (
         <ConnectionListItem
           data-testid="connection-list-item"
           key={itemKey}
@@ -85,7 +72,7 @@ export const PermissionsPage = () => {
     });
 
   return (
-    <Page data-testid="permissions-page">
+    <Page className="main-container" data-testid="permissions-page">
       <Header
         backgroundColor={BackgroundColor.backgroundDefault}
         startAccessory={
@@ -121,58 +108,11 @@ export const PermissionsPage = () => {
           positionObj="44%"
         />
       ) : null}
-      <Content>
+      <Content padding={0}>
         <Box ref={headerRef}></Box>
-        {shouldShowTabsView ? (
-          <Tabs tabsClassName="permissions-page__tabs">
-            <Tab
-              data-testid="permissions-page-sites-tab"
-              name={t('sites')}
-              tabKey="sites"
-            >
-              {renderConnectionsList(sitesConnectionsList)}
-            </Tab>
-            <Tab
-              data-testid="permissions-page-snaps-tab"
-              name={t('snaps')}
-              tabKey="snaps"
-            >
-              {renderConnectionsList(snapsConnectionsList)}
-            </Tab>
-          </Tabs>
+        {totalConnections > 0 ? (
+          renderConnectionsList(sitesConnectionsList)
         ) : (
-          <>
-            {Object.keys(sitesConnectionsList).length > 0 && (
-              <>
-                <Text
-                  data-testid="sites-connections"
-                  backgroundColor={BackgroundColor.backgroundDefault}
-                  variant={TextVariant.bodyLgMedium}
-                  textAlign={TextAlign.Center}
-                  padding={4}
-                >
-                  {t('siteConnections')}
-                </Text>
-                {renderConnectionsList(sitesConnectionsList)}
-              </>
-            )}
-            {Object.keys(snapsConnectionsList).length > 0 && (
-              <>
-                <Text
-                  data-testid="snaps-connections"
-                  variant={TextVariant.bodyLgMedium}
-                  backgroundColor={BackgroundColor.backgroundDefault}
-                  textAlign={TextAlign.Center}
-                  padding={4}
-                >
-                  {t('snapConnections')}
-                </Text>
-                {renderConnectionsList(snapsConnectionsList)}
-              </>
-            )}
-          </>
-        )}
-        {totalConnections === 0 ? (
           <Box
             data-testid="no-connections"
             display={Display.Flex}
@@ -180,6 +120,7 @@ export const PermissionsPage = () => {
             justifyContent={JustifyContent.center}
             height={BlockSize.Full}
             gap={2}
+            padding={4}
           >
             <Text
               variant={TextVariant.bodyMdMedium}
@@ -197,7 +138,7 @@ export const PermissionsPage = () => {
               {t('permissionsPageEmptySubContent')}
             </Text>
           </Box>
-        ) : null}
+        )}
       </Content>
     </Page>
   );

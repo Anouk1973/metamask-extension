@@ -2,11 +2,14 @@ import { InvisibleCharacter } from '../../components/component-library';
 import {
   GOERLI_DISPLAY_NAME,
   LINEA_GOERLI_DISPLAY_NAME,
+  LINEA_SEPOLIA_DISPLAY_NAME,
   SEPOLIA_DISPLAY_NAME,
 } from '../../../shared/constants/network';
 import { BackgroundColor } from '../constants/design-system';
 import { KeyringType } from '../../../shared/constants/keyring';
 import { HardwareKeyringNames } from '../../../shared/constants/hardware-wallets';
+// TODO: Remove restricted import
+// eslint-disable-next-line import/no-restricted-paths
 import { t } from '../../../app/scripts/translate';
 
 export function getAccountNameErrorMessage(
@@ -16,7 +19,7 @@ export function getAccountNameErrorMessage(
   defaultAccountName,
 ) {
   const isDuplicateAccountName = accounts.some(
-    (item) => item.name.toLowerCase() === newAccountName.toLowerCase(),
+    (item) => item.metadata.name.toLowerCase() === newAccountName.toLowerCase(),
   );
 
   const isEmptyAccountName = newAccountName === '';
@@ -60,6 +63,8 @@ export function getAvatarNetworkColor(name) {
       return BackgroundColor.goerli;
     case LINEA_GOERLI_DISPLAY_NAME:
       return BackgroundColor.lineaGoerli;
+    case LINEA_SEPOLIA_DISPLAY_NAME:
+      return BackgroundColor.lineaSepolia;
     case SEPOLIA_DISPLAY_NAME:
       return BackgroundColor.sepolia;
     default:

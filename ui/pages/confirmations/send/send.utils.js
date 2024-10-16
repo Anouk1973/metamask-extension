@@ -1,5 +1,6 @@
-import abi from 'ethereumjs-abi';
-
+import { encode } from '@metamask/abi-utils';
+// TODO: Remove restricted import
+// eslint-disable-next-line import/no-restricted-paths
 import { addHexPrefix } from '../../../../app/scripts/lib/util';
 import { TokenStandard } from '../../../../shared/constants/transaction';
 import { Numeric } from '../../../../shared/modules/Numeric';
@@ -26,7 +27,7 @@ function isBalanceSufficient({
   balance = '0x0',
   conversionRate = 1,
   gasTotal = '0x0',
-  primaryCurrency,
+  primaryCurrency = undefined,
 }) {
   let totalAmount = new Numeric(amount, 16).add(new Numeric(gasTotal, 16));
   let balanceNumeric = new Numeric(balance, 16);
@@ -91,7 +92,7 @@ function generateERC20TransferData({
     TOKEN_TRANSFER_FUNCTION_SIGNATURE +
     Array.prototype.map
       .call(
-        abi.rawEncode(
+        encode(
           ['address', 'uint256'],
           [addHexPrefix(toAddress), addHexPrefix(amount)],
         ),
@@ -113,9 +114,9 @@ function generateERC721TransferData({
     NFT_TRANSFER_FROM_FUNCTION_SIGNATURE +
     Array.prototype.map
       .call(
-        abi.rawEncode(
+        encode(
           ['address', 'address', 'uint256'],
-          [addHexPrefix(fromAddress), addHexPrefix(toAddress), tokenId],
+          [addHexPrefix(fromAddress), addHexPrefix(toAddress), BigInt(tokenId)],
         ),
         (x) => `00${x.toString(16)}`.slice(-2),
       )
@@ -137,14 +138,14 @@ function generateERC1155TransferData({
     NFT_SAFE_TRANSFER_FROM_FUNCTION_SIGNATURE +
     Array.prototype.map
       .call(
-        abi.rawEncode(
+        encode(
           ['address', 'address', 'uint256', 'uint256', 'bytes'],
           [
             addHexPrefix(fromAddress),
             addHexPrefix(toAddress),
-            tokenId,
-            amount,
-            data,
+            BigInt(tokenId),
+            addHexPrefix(amount),
+            addHexPrefix(data),
           ],
         ),
         (x) => `00${x.toString(16)}`.slice(-2),

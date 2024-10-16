@@ -8,6 +8,10 @@ import ConfirmPageContainer from '../components/confirm-page-container';
 import { isBalanceSufficient } from '../send/send.utils';
 import { DEFAULT_ROUTE } from '../../../helpers/constants/routes';
 import {
+  TextVariant,
+  TextColor,
+} from '../../../helpers/constants/design-system';
+import {
   INSUFFICIENT_FUNDS_ERROR_KEY,
   GAS_LIMIT_TOO_LOW_ERROR_KEY,
   ETH_GAS_PRICE_FETCH_WARNING_KEY,
@@ -15,11 +19,10 @@ import {
   IS_SIGNING_OR_SUBMITTING,
   USER_OP_CONTRACT_DEPLOY_ERROR_KEY,
 } from '../../../helpers/constants/error-keys';
+
 import UserPreferencedCurrencyDisplay from '../../../components/app/user-preferenced-currency-display';
 
 import { PRIMARY, SECONDARY } from '../../../helpers/constants/common';
-import TextField from '../../../components/ui/text-field';
-import SimulationErrorMessage from '../components/simulation-error-message';
 import { MetaMetricsEventCategory } from '../../../../shared/constants/metametrics';
 import { getMethodName } from '../../../helpers/utils/metrics';
 import {
@@ -28,26 +31,31 @@ import {
 } from '../../../helpers/utils/transactions.util';
 
 ///: BEGIN:ONLY_INCLUDE_IF(build-mmi)
-import NoteToTrader from '../../../components/institutional/note-to-trader';
+import TabbedNoteToTrader from '../../../components/institutional/note-to-trader/note-to-trader-tabbed';
 ///: END:ONLY_INCLUDE_IF
+import {
+  AccountType,
+  CustodyStatus,
+} from '../../../../shared/constants/custody';
 
 import { TransactionModalContextProvider } from '../../../contexts/transaction-modal';
 import TransactionDetail from '../components/transaction-detail/transaction-detail.component';
 import TransactionDetailItem from '../components/transaction-detail-item/transaction-detail-item.component';
+import { Text, TextField } from '../../../components/component-library';
 import LoadingHeartBeat from '../../../components/ui/loading-heartbeat';
 import LedgerInstructionField from '../components/ledger-instruction-field';
 import {
-  disconnectGasFeeEstimatePoller,
-  getGasFeeEstimatesAndStartPolling,
   addPollingTokenToAppState,
   removePollingTokenFromAppState,
+  gasFeeStartPollingByNetworkClientId,
+  gasFeeStopPollingByPollingToken,
 } from '../../../store/actions';
 
 import { MIN_GAS_LIMIT_DEC } from '../send/send.constants';
 
 import { NETWORK_TO_NAME_MAP } from '../../../../shared/constants/network';
 import {
-  addHexes,
+  sumHexes,
   hexToDecimal,
 } from '../../../../shared/modules/conversion.utils';
 import TransactionAlerts from '../components/transaction-alerts';
@@ -58,9 +66,14 @@ import { ConfirmGasDisplay } from '../components/confirm-gas-display';
 import updateTxData from '../../../../shared/modules/updateTxData';
 ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
 import { KeyringType } from '../../../../shared/constants/keyring';
+import SnapAccountTransactionLoadingScreen from '../../snap-account-transaction-loading-screen/snap-account-transaction-loading-screen';
 ///: END:ONLY_INCLUDE_IF
 import { isHardwareKeyring } from '../../../helpers/utils/hardware';
 import FeeDetailsComponent from '../components/fee-details-component/fee-details-component';
+import { SimulationDetails } from '../components/simulation-details';
+import { fetchSwapsFeatureFlags } from '../../swaps/swaps.util';
+import { NetworkChangeToastLegacy } from '../components/confirm/network-change-toast';
+import { hasTransactionData } from '../../../../shared/modules/transaction.utils';
 
 export default class ConfirmTransactionBase extends Component {
   static contextTypes = {
@@ -102,6 +115,9 @@ export default class ConfirmTransactionBase extends Component {
     unapprovedTxCount: PropTypes.number,
     customGas: PropTypes.object,
     addToAddressBookIfNew: PropTypes.func,
+    ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
+    fromInternalAccount: PropTypes.object,
+    ///: END:ONLY_INCLUDE_IF
     keyringForAccount: PropTypes.object,
     // Component props
     actionKey: PropTypes.string,
@@ -117,19 +133,19 @@ export default class ConfirmTransactionBase extends Component {
     image: PropTypes.string,
     type: PropTypes.string,
     getNextNonce: PropTypes.func,
+    setNextNonce: PropTypes.func,
     nextNonce: PropTypes.number,
     tryReverseResolveAddress: PropTypes.func.isRequired,
     hideSenderToRecipient: PropTypes.bool,
     showAccountInHeader: PropTypes.bool,
     mostRecentOverviewPage: PropTypes.string.isRequired,
-    isEthGasPrice: PropTypes.bool,
+    isEthGasPriceFetched: PropTypes.bool,
     noGasPrice: PropTypes.bool,
     setDefaultHomeActiveTabName: PropTypes.func,
     primaryTotalTextOverride: PropTypes.string,
     secondaryTotalTextOverride: PropTypes.string,
     gasIsLoading: PropTypes.bool,
     primaryTotalTextOverrideMaxAmount: PropTypes.string,
-    useNativeCurrencyAsPrimaryCurrency: PropTypes.bool,
     maxFeePerGas: PropTypes.string,
     maxPriorityFeePerGas: PropTypes.string,
     baseFeePerGas: PropTypes.string,
@@ -154,11 +170,20 @@ export default class ConfirmTransactionBase extends Component {
     displayAccountBalanceHeader: PropTypes.bool,
     tokenSymbol: PropTypes.string,
     updateTransaction: PropTypes.func,
+    updateTransactionValue: PropTypes.func,
+    setSwapsFeatureFlags: PropTypes.func,
+    fetchSmartTransactionsLiveness: PropTypes.func,
     isUsingPaymaster: PropTypes.bool,
     isSigningOrSubmitting: PropTypes.bool,
     isUserOpContractDeployError: PropTypes.bool,
     useMaxValue: PropTypes.bool,
     maxValue: PropTypes.string,
+    smartTransactionsOptInStatus: PropTypes.bool,
+    currentChainSupportsSmartTransactions: PropTypes.bool,
+    selectedNetworkClientId: PropTypes.string,
+    isSmartTransactionsEnabled: PropTypes.bool,
+    hasPriorityApprovalRequest: PropTypes.bool,
+    chainId: PropTypes.string,
   };
 
   state = {
@@ -184,23 +209,35 @@ export default class ConfirmTransactionBase extends Component {
       customNonceValue,
       toAddress,
       tryReverseResolveAddress,
-      isEthGasPrice,
+      isEthGasPriceFetched,
       setDefaultHomeActiveTabName,
       hexMaximumTransactionFee,
       useMaxValue,
+      hasPriorityApprovalRequest,
+      mostRecentOverviewPage,
+      txData,
+      getNextNonce,
     } = this.props;
+
     const {
       customNonceValue: prevCustomNonceValue,
       nextNonce: prevNextNonce,
       toAddress: prevToAddress,
       transactionStatus: prevTxStatus,
-      isEthGasPrice: prevIsEthGasPrice,
+      isEthGasPriceFetched: prevIsEthGasPriceFetched,
       hexMaximumTransactionFee: prevHexMaximumTransactionFee,
+      hasPriorityApprovalRequest: prevHasPriorityApprovalRequest,
+      txData: prevTxData,
     } = prevProps;
+
     const statusUpdated = transactionStatus !== prevTxStatus;
     const txDroppedOrConfirmed =
       transactionStatus === TransactionStatus.dropped ||
       transactionStatus === TransactionStatus.confirmed;
+
+    if (txData.id !== prevTxData.id) {
+      getNextNonce();
+    }
 
     if (
       nextNonce !== prevNextNonce ||
@@ -230,8 +267,8 @@ export default class ConfirmTransactionBase extends Component {
       tryReverseResolveAddress(toAddress);
     }
 
-    if (isEthGasPrice !== prevIsEthGasPrice) {
-      if (isEthGasPrice) {
+    if (isEthGasPriceFetched !== prevIsEthGasPriceFetched) {
+      if (isEthGasPriceFetched) {
         this.setState({
           ethGasPriceWarning: this.context.t(ETH_GAS_PRICE_FETCH_WARNING_KEY),
         });
@@ -247,6 +284,11 @@ export default class ConfirmTransactionBase extends Component {
       useMaxValue
     ) {
       this.updateValueToMax();
+    }
+
+    if (hasPriorityApprovalRequest && !prevHasPriorityApprovalRequest) {
+      // Redirect to home which will redirect to the priority confirmation.
+      history.push(mostRecentOverviewPage);
     }
   }
 
@@ -346,15 +388,9 @@ export default class ConfirmTransactionBase extends Component {
   }
 
   updateValueToMax() {
-    const { maxValue: value, txData, updateTransaction } = this.props;
+    const { maxValue: value, txData, updateTransactionValue } = this.props;
 
-    updateTransaction({
-      ...txData,
-      txParams: {
-        ...txData.txParams,
-        value,
-      },
-    });
+    updateTransactionValue(txData.id, value);
   }
 
   renderDetails() {
@@ -369,7 +405,6 @@ export default class ConfirmTransactionBase extends Component {
       nextNonce,
       getNextNonce,
       txData,
-      useNativeCurrencyAsPrimaryCurrency,
       primaryTotalTextOverrideMaxAmount,
       showLedgerSteps,
       nativeCurrency,
@@ -377,6 +412,7 @@ export default class ConfirmTransactionBase extends Component {
       useCurrencyRateCheck,
       tokenSymbol,
       isUsingPaymaster,
+      isSigningOrSubmitting,
     } = this.props;
 
     const { t } = this.context;
@@ -394,13 +430,30 @@ export default class ConfirmTransactionBase extends Component {
     const networkName = NETWORK_TO_NAME_MAP[txData.chainId];
 
     const getTotalAmount = (useMaxFee) => {
-      return addHexes(
+      return sumHexes(
         txData.txParams.value,
         useMaxFee ? hexMaximumTransactionFee : hexMinimumTransactionFee,
+        txData.layer1GasFee ?? 0,
       );
     };
 
-    const renderTotalMaxAmount = (useMaxFee) => {
+    const handleNonceChange = ({ target: { value } }) => {
+      const inputValue = Number(value);
+
+      if (inputValue < 0 || isNaN(inputValue)) {
+        updateCustomNonce(undefined);
+        return;
+      }
+
+      updateCustomNonce(inputValue);
+
+      getNextNonce();
+    };
+
+    const renderTotalMaxAmount = ({
+      useMaxFee,
+      isBoldTextAndNotOverridden = false,
+    } = {}) => {
       if (
         primaryTotalTextOverrideMaxAmount === undefined &&
         secondaryTotalTextOverride === undefined
@@ -411,15 +464,22 @@ export default class ConfirmTransactionBase extends Component {
             type={PRIMARY}
             key="total-max-amount"
             value={getTotalAmount(useMaxFee)}
-            hideLabel={!useNativeCurrencyAsPrimaryCurrency}
           />
         );
       }
 
       // Token send
-      return useNativeCurrencyAsPrimaryCurrency
+      const primaryTotal = useMaxFee
         ? primaryTotalTextOverrideMaxAmount
-        : secondaryTotalTextOverride;
+        : primaryTotalTextOverride;
+
+      const totalMaxAmount = primaryTotal;
+
+      return isBoldTextAndNotOverridden ? (
+        <Text variant={TextVariant.bodyMdBold}>{totalMaxAmount}</Text>
+      ) : (
+        totalMaxAmount
+      );
     };
 
     const renderTotalDetailText = (value) => {
@@ -435,17 +495,31 @@ export default class ConfirmTransactionBase extends Component {
               type={SECONDARY}
               key="total-detail-text"
               value={value}
-              hideLabel={Boolean(useNativeCurrencyAsPrimaryCurrency)}
+              suffixProps={{
+                color: TextColor.textDefault,
+                variant: TextVariant.bodyMdBold,
+              }}
+              textProps={{
+                color: TextColor.textDefault,
+                variant: TextVariant.bodyMdBold,
+              }}
+              hideLabel
             />
           </div>
         );
       }
-      return useNativeCurrencyAsPrimaryCurrency
-        ? secondaryTotalTextOverride
-        : primaryTotalTextOverride;
+      return secondaryTotalTextOverride;
     };
 
-    const nonceField = useNonceField ? (
+    const nextNonceValue =
+      typeof nextNonce === 'number' ? nextNonce.toString() : null;
+    const renderNonceField = useNonceField && !isSigningOrSubmitting;
+
+    if (renderNonceField && !customNonceValue && nextNonceValue) {
+      updateCustomNonce(nextNonceValue);
+    }
+
+    const nonceField = renderNonceField ? (
       <div>
         <div className="confirm-detail-row">
           <div className="confirm-detail-row__label">
@@ -455,39 +529,28 @@ export default class ConfirmTransactionBase extends Component {
             <TextField
               type="number"
               min={0}
-              placeholder={
-                typeof nextNonce === 'number' ? nextNonce.toString() : null
-              }
-              onChange={({ target: { value } }) => {
-                if (!value.length || Number(value) < 0) {
-                  updateCustomNonce('');
-                } else {
-                  updateCustomNonce(String(Math.floor(value)));
-                }
-                getNextNonce();
-              }}
+              placeholder={nextNonceValue}
+              onChange={handleNonceChange}
               fullWidth
               margin="dense"
-              value={customNonceValue || ''}
+              value={customNonceValue ?? ''}
             />
           </div>
         </div>
       </div>
     ) : null;
 
-    const simulationFailureWarning = () => (
-      <div
-        className="confirm-page-container-content__error-container"
-        key="confirm-transaction-base_simulation-error-container"
-      >
-        <SimulationErrorMessage
-          userAcknowledgedGasMissing={userAcknowledgedGasMissing}
-          setUserAcknowledgedGasMissing={() =>
-            this.setUserAcknowledgedGasMissing()
-          }
-        />
-      </div>
+    const { simulationData } = txData;
+
+    const simulationDetails = (
+      <SimulationDetails
+        simulationData={simulationData}
+        transactionId={txData.id}
+        enableMetrics
+      />
     );
+
+    const showTotals = Boolean(simulationData?.error);
 
     return (
       <div className="confirm-page-container-content__details">
@@ -504,16 +567,14 @@ export default class ConfirmTransactionBase extends Component {
           tokenSymbol={tokenSymbol}
           isUsingPaymaster={isUsingPaymaster}
         />
-        <TransactionDetail
-          disableEditGasFeeButton
-          disabled={isDisabled()}
-          userAcknowledgedGasMissing={userAcknowledgedGasMissing}
-          onEdit={
-            renderSimulationFailureWarning ? null : () => this.handleEditGas()
-          }
-          rows={[
-            renderSimulationFailureWarning && simulationFailureWarning(),
-            !renderSimulationFailureWarning && (
+        {simulationDetails}
+        {!renderSimulationFailureWarning && (
+          <TransactionDetail
+            disableEditGasFeeButton
+            disabled={isDisabled()}
+            userAcknowledgedGasMissing={userAcknowledgedGasMissing}
+            onEdit={() => this.handleEditGas()}
+            rows={[
               <div key="confirm-transaction-base_confirm-gas-display">
                 <ConfirmGasDisplay
                   userAcknowledgedGasMissing={userAcknowledgedGasMissing}
@@ -522,37 +583,51 @@ export default class ConfirmTransactionBase extends Component {
                   useCurrencyRateCheck={useCurrencyRateCheck}
                   txData={txData}
                 />
-              </div>
-            ),
-          ]}
-        />
-        <TransactionDetail
-          disableEditGasFeeButton
-          disabled={isDisabled()}
-          userAcknowledgedGasMissing={userAcknowledgedGasMissing}
-          rows={[
-            <TransactionDetailItem
-              key="confirm-transaction-base-total-item"
-              detailTitle={t('total')}
-              detailText={
-                useCurrencyRateCheck && renderTotalDetailText(getTotalAmount())
-              }
-              detailTotal={renderTotalMaxAmount(true)}
-              subTitle={t('transactionDetailGasTotalSubtitle')}
-              subText={
-                <div className="confirm-page-container-content__total-amount">
-                  <LoadingHeartBeat
-                    estimateUsed={this.props.txData?.userFeeLevel}
-                  />
-                  <strong key="editGasSubTextAmountLabel">
-                    {t('editGasSubTextAmountLabel')}
-                  </strong>{' '}
-                  {renderTotalMaxAmount(true)}
-                </div>
-              }
-            />,
-          ]}
-        />
+              </div>,
+            ]}
+          />
+        )}
+        {showTotals && (
+          <TransactionDetail
+            disableEditGasFeeButton
+            disabled={isDisabled()}
+            userAcknowledgedGasMissing={userAcknowledgedGasMissing}
+            rows={[
+              <TransactionDetailItem
+                key="confirm-transaction-base-total-item"
+                detailTitle={t('total')}
+                detailText={
+                  useCurrencyRateCheck &&
+                  renderTotalDetailText(getTotalAmount())
+                }
+                detailTotal={renderTotalMaxAmount({
+                  useMaxFee: false,
+                  isBoldTextAndNotOverridden: true,
+                })}
+                subTitle={t('transactionDetailGasTotalSubtitle')}
+                subText={
+                  <div
+                    className="confirm-page-container-content__total-amount"
+                    data-testid="confirm-page-total-amount"
+                  >
+                    <LoadingHeartBeat
+                      estimateUsed={this.props.txData?.userFeeLevel}
+                    />
+                    <Text
+                      color={TextColor.textAlternative}
+                      variant={TextVariant.bodySmMedium}
+                    >
+                      {t('editGasSubTextAmountLabel')}
+                    </Text>{' '}
+                    {renderTotalMaxAmount({
+                      useMaxFee: true,
+                    })}
+                  </div>
+                }
+              />,
+            ]}
+          />
+        )}
         {nonceField}
         {showLedgerSteps ? (
           <LedgerInstructionField
@@ -568,7 +643,7 @@ export default class ConfirmTransactionBase extends Component {
     const {
       txParams: { data },
     } = txData;
-    if (!data) {
+    if (!hasTransactionData(data)) {
       return null;
     }
     return (
@@ -633,12 +708,14 @@ export default class ConfirmTransactionBase extends Component {
       history,
       mostRecentOverviewPage,
       updateCustomNonce,
+      setNextNonce,
     } = this.props;
 
     this._removeBeforeUnload();
-    updateCustomNonce('');
     await cancelTransaction(txData);
     history.push(mostRecentOverviewPage);
+    updateCustomNonce('');
+    setNextNonce('');
   }
 
   handleSubmit() {
@@ -660,6 +737,7 @@ export default class ConfirmTransactionBase extends Component {
       history,
       mostRecentOverviewPage,
       updateCustomNonce,
+      setNextNonce,
       methodData,
       maxFeePerGas,
       customTokenAmount,
@@ -671,6 +749,9 @@ export default class ConfirmTransactionBase extends Component {
       toAccounts,
       toAddress,
       keyringForAccount,
+      ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
+      fromInternalAccount,
+      ///: END:ONLY_INCLUDE_IF
     } = this.props;
 
     let loadingIndicatorMessage;
@@ -678,7 +759,11 @@ export default class ConfirmTransactionBase extends Component {
     switch (keyringForAccount?.type) {
       ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
       case KeyringType.snap:
-        loadingIndicatorMessage = this.context.t('loadingScreenSnapMessage');
+        loadingIndicatorMessage = (
+          <SnapAccountTransactionLoadingScreen
+            internalAccount={fromInternalAccount}
+          ></SnapAccountTransactionLoadingScreen>
+        );
         break;
       ///: END:ONLY_INCLUDE_IF
       default:
@@ -714,12 +799,11 @@ export default class ConfirmTransactionBase extends Component {
       () => {
         this._removeBeforeUnload();
 
-        sendTransaction(
-          txData,
-          false, // hideLoadingIndicator
-          loadingIndicatorMessage, // loadingIndicatorMessage
-        )
+        sendTransaction(txData, false, loadingIndicatorMessage)
           .then(() => {
+            updateCustomNonce('');
+            setNextNonce('');
+
             if (!this._isMounted) {
               return;
             }
@@ -730,11 +814,12 @@ export default class ConfirmTransactionBase extends Component {
               },
               () => {
                 history.push(mostRecentOverviewPage);
-                updateCustomNonce('');
               },
             );
           })
           .catch((error) => {
+            updateCustomNonce('');
+            setNextNonce('');
             if (!this._isMounted) {
               return;
             }
@@ -742,7 +827,6 @@ export default class ConfirmTransactionBase extends Component {
               submitting: false,
               submitError: error.message,
             });
-            updateCustomNonce('');
           });
       },
     );
@@ -756,6 +840,7 @@ export default class ConfirmTransactionBase extends Component {
       history,
       mostRecentOverviewPage,
       updateCustomNonce,
+      setNextNonce,
       unapprovedTxCount,
       accountType,
       isNotification,
@@ -777,15 +862,20 @@ export default class ConfirmTransactionBase extends Component {
       toAddress,
       showCustodianDeepLink,
       clearConfirmTransaction,
+      isSmartTransactionsEnabled,
     } = this.props;
     const { noteText } = this.state;
 
-    if (accountType === 'custody') {
-      txData.custodyStatus = 'created';
+    if (accountType === AccountType.CUSTODY) {
+      txData.custodyStatus = CustodyStatus.CREATED;
       txData.metadata = txData.metadata || {};
 
       if (isNoteToTraderSupported) {
         txData.metadata.note = noteText;
+      }
+
+      if (isSmartTransactionsEnabled) {
+        txData.origin += '#smartTransaction';
       }
 
       txData.metadata.custodianPublishesTransaction =
@@ -823,6 +913,8 @@ export default class ConfirmTransactionBase extends Component {
 
         sendTransaction(txData)
           .then(() => {
+            updateCustomNonce('');
+            setNextNonce('');
             if (txData.custodyStatus) {
               showCustodianDeepLink({
                 fromAddress,
@@ -841,7 +933,6 @@ export default class ConfirmTransactionBase extends Component {
                   }
                   this.setState({ submitting: false }, () => {
                     history.push(mostRecentOverviewPage);
-                    updateCustomNonce('');
                   });
                 },
               });
@@ -855,12 +946,14 @@ export default class ConfirmTransactionBase extends Component {
                 },
                 () => {
                   history.push(mostRecentOverviewPage);
-                  updateCustomNonce('');
                 },
               );
             }
           })
           .catch((error) => {
+            updateCustomNonce('');
+            setNextNonce('');
+
             if (!this._isMounted) {
               return;
             }
@@ -872,7 +965,6 @@ export default class ConfirmTransactionBase extends Component {
               submitError: error.message,
             });
             setWaitForConfirmDeepLinkDialog(true);
-            updateCustomNonce('');
           });
       },
     );
@@ -911,7 +1003,7 @@ export default class ConfirmTransactionBase extends Component {
   _beforeUnloadForGasPolling = () => {
     this._isMounted = false;
     if (this.state.pollingToken) {
-      disconnectGasFeeEstimatePoller(this.state.pollingToken);
+      gasFeeStopPollingByPollingToken(this.state.pollingToken);
       removePollingTokenFromAppState(this.state.pollingToken);
     }
   };
@@ -924,10 +1016,24 @@ export default class ConfirmTransactionBase extends Component {
     this._isMounted = true;
     const {
       toAddress,
-      txData: { origin } = {},
+      txData: { origin, chainId: txChainId } = {},
       getNextNonce,
       tryReverseResolveAddress,
+      smartTransactionsOptInStatus,
+      currentChainSupportsSmartTransactions,
+      setSwapsFeatureFlags,
+      fetchSmartTransactionsLiveness,
+      chainId,
     } = this.props;
+
+    // If the user somehow finds themselves seeing a confirmation
+    // on a network which is not presently selected, throw
+    if (txChainId === undefined || txChainId !== chainId) {
+      throw new Error(
+        `Currently selected chainId (${chainId}) does not match chainId (${txChainId}) on which the transaction was proposed.`,
+      );
+    }
+
     const { trackEvent } = this.context;
     trackEvent({
       category: MetaMetricsEventCategory.Transactions,
@@ -948,20 +1054,31 @@ export default class ConfirmTransactionBase extends Component {
      * This makes a request to get estimates and begin polling, keeping track of the poll
      * token in component state.
      * It then disconnects polling upon componentWillUnmount. If the hook is unmounted
-     * while waiting for `getGasFeeEstimatesAndStartPolling` to resolve, the `_isMounted`
+     * while waiting for `gasFeeStartPollingByNetworkClientId` to resolve, the `_isMounted`
      * flag ensures that a call to disconnect happens after promise resolution.
      */
-    getGasFeeEstimatesAndStartPolling().then((pollingToken) => {
+    gasFeeStartPollingByNetworkClientId(
+      this.props.selectedNetworkClientId,
+    ).then((pollingToken) => {
       if (this._isMounted) {
         addPollingTokenToAppState(pollingToken);
         this.setState({ pollingToken });
       } else {
-        disconnectGasFeeEstimatePoller(pollingToken);
+        gasFeeStopPollingByPollingToken(pollingToken);
         removePollingTokenFromAppState(this.state.pollingToken);
       }
     });
 
     window.addEventListener('beforeunload', this._beforeUnloadForGasPolling);
+
+    if (smartTransactionsOptInStatus && currentChainSupportsSmartTransactions) {
+      // TODO: Fetching swaps feature flags, which include feature flags for smart transactions, is only a short-term solution.
+      // Long-term, we want to have a new proxy service specifically for feature flags.
+      Promise.all([
+        fetchSwapsFeatureFlags(),
+        fetchSmartTransactionsLiveness(),
+      ]).then(([swapsFeatureFlags]) => setSwapsFeatureFlags(swapsFeatureFlags));
+    }
   }
 
   componentWillUnmount() {
@@ -1031,8 +1148,8 @@ export default class ConfirmTransactionBase extends Component {
     // as this component is made functional, useTransactionFunctionType can be used to get functionType
     const isTokenApproval =
       txData.type === TransactionType.tokenMethodSetApprovalForAll ||
-      txData.type === TransactionType.tokenMethodApprove;
-
+      txData.type === TransactionType.tokenMethodApprove ||
+      txData.type === TransactionType.tokenMethodIncreaseAllowance;
     const isContractInteraction =
       txData.type === TransactionType.contractInteraction;
 
@@ -1074,8 +1191,8 @@ export default class ConfirmTransactionBase extends Component {
           ///: BEGIN:ONLY_INCLUDE_IF(build-mmi)
           noteComponent={
             isNoteToTraderSupported && (
-              <NoteToTrader
-                maxLength="280"
+              <TabbedNoteToTrader
+                maxLength={280}
                 placeholder={t('notePlaceholder')}
                 onChange={(value) => this.setState({ noteText: value })}
                 noteText={this.state.noteText}
@@ -1118,6 +1235,7 @@ export default class ConfirmTransactionBase extends Component {
           txData={txData}
           displayAccountBalanceHeader={displayAccountBalanceHeader}
         />
+        <NetworkChangeToastLegacy confirmation={txData} />
       </TransactionModalContextProvider>
     );
   }

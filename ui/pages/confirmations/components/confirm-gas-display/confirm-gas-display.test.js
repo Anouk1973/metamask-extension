@@ -1,8 +1,6 @@
 import React from 'react';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 
-import { NetworkType } from '@metamask/controller-utils';
-import { NetworkStatus } from '@metamask/network-controller';
 import { GasEstimateTypes } from '../../../../../shared/constants/gas';
 import mockEstimates from '../../../../../test/data/mock-estimates.json';
 import mockState from '../../../../../test/data/mock-state.json';
@@ -10,48 +8,69 @@ import { renderWithProvider } from '../../../../../test/jest';
 import configureStore from '../../../../store/store';
 
 import { GasFeeContextProvider } from '../../../../contexts/gasFee';
+import { getSelectedInternalAccountFromMockState } from '../../../../../test/jest/mocks';
+import { CHAIN_IDS } from '../../../../../shared/constants/network';
+import { mockNetworkState } from '../../../../../test/stub/networks';
 import ConfirmGasDisplay from './confirm-gas-display';
 
 jest.mock('../../../../store/actions', () => ({
-  disconnectGasFeeEstimatePoller: jest.fn(),
-  getGasFeeEstimatesAndStartPolling: jest
+  gasFeeStartPollingByNetworkClientId: jest
     .fn()
-    .mockImplementation(() => Promise.resolve()),
-  addPollingTokenToAppState: jest.fn(),
+    .mockResolvedValue('pollingToken'),
+  gasFeeStopPollingByPollingToken: jest.fn(),
+  getNetworkConfigurationByNetworkClientId: jest
+    .fn()
+    .mockResolvedValue({ chainId: '0x5' }),
   getGasFeeTimeEstimate: jest.fn().mockImplementation(() => Promise.resolve()),
 }));
 
-const render = ({ transactionProp = {}, contextProps = {} } = {}) => {
+const mockSelectedInternalAccount =
+  getSelectedInternalAccountFromMockState(mockState);
+
+const render = async ({ transactionProp = {}, contextProps = {} } = {}) => {
   const store = configureStore({
     ...mockState,
     ...contextProps,
     metamask: {
       ...mockState.metamask,
       accounts: {
-        [mockState.metamask.selectedAddress]: {
-          address: mockState.metamask.selectedAddress,
+        [mockSelectedInternalAccount.address]: {
+          address: mockSelectedInternalAccount.address,
           balance: '0x1F4',
         },
       },
-      preferences: {
-        useNativeCurrencyAsPrimaryCurrency: true,
-      },
+      preferences: {},
       gasFeeEstimates:
         mockEstimates[GasEstimateTypes.feeMarket].gasFeeEstimates,
+      gasFeeEstimatesByChainId: {
+        ...mockState.metamask.gasFeeEstimatesByChainId,
+        '0x5': {
+          ...mockState.metamask.gasFeeEstimatesByChainId['0x5'],
+          gasFeeEstimates:
+            mockEstimates[GasEstimateTypes.feeMarket].gasFeeEstimates,
+        },
+      },
     },
   });
 
-  return renderWithProvider(
-    <GasFeeContextProvider transaction={transactionProp}>
-      <ConfirmGasDisplay />
-    </GasFeeContextProvider>,
-    store,
+  let result;
+
+  await act(
+    async () =>
+      (result = renderWithProvider(
+        <GasFeeContextProvider transaction={transactionProp}>
+          <ConfirmGasDisplay />
+        </GasFeeContextProvider>,
+        store,
+      )),
   );
+
+  return result;
 };
 
 describe('ConfirmGasDisplay', () => {
   it('should match snapshot', async () => {
-    const { container } = render({
+    const { container } = await render({
       transactionProp: {
         txParams: {
           gas: '0x5208',
@@ -61,8 +80,8 @@ describe('ConfirmGasDisplay', () => {
     });
     expect(container).toMatchSnapshot();
   });
-  it('should render gas display labels for EIP1559 transcations', () => {
-    render({
+  it('should render gas display labels for EIP1559 transcations', async () => {
+    await render({
       transactionProp: {
         txParams: {
           gas: '0x5208',
@@ -76,19 +95,14 @@ describe('ConfirmGasDisplay', () => {
     expect(screen.queryByText('Max fee:')).toBeInTheDocument();
     expect(screen.queryAllByText('ETH').length).toBeGreaterThan(0);
   });
-  it('should render gas display labels for legacy transcations', () => {
-    render({
+  it('should render gas display labels for legacy transcations', async () => {
+    await render({
       contextProps: {
         metamask: {
-          selectedNetworkClientId: NetworkType.mainnet,
-          networksMetadata: {
-            [NetworkType.mainnet]: {
-              EIPS: {
-                1559: false,
-              },
-              status: NetworkStatus.Available,
-            },
-          },
+          ...mockNetworkState({
+            chainId: CHAIN_IDS.GOERLI,
+            metadata: { EIPS: { 1559: false } },
+          }),
         },
         confirmTransaction: {
           txData: {

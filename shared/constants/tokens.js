@@ -18,10 +18,12 @@ export const LISTED_CONTRACT_ADDRESSES = Object.keys(contractMap).map(
  * @property {number} [decimals] - The number of decimals of the selected
  *  'ERC20' asset.
  * @property {number} [tokenId] - The id of the selected 'NFT' asset.
+ * @property {string} [image] - A URL to the image of the NFT or ERC20 icon.
  * @property {TokenStandardStrings} [standard] - The standard of the selected
  *  asset.
  * @property {boolean} [isERC721] - True when the asset is a ERC721 token.
  */
+
 export const STATIC_MAINNET_TOKEN_LIST = Object.keys(contractMap).reduce(
   (acc, base) => {
     const { logo, ...tokenMetadata } = contractMap[base];
@@ -39,7 +41,7 @@ export const STATIC_MAINNET_TOKEN_LIST = Object.keys(contractMap).reduce(
 );
 
 export const TOKEN_API_METASWAP_CODEFI_URL =
-  'https://token-api.metaswap.codefi.network/tokens/';
+  'https://token.api.cx.metamask.io/tokens/';
 export const MAX_TOKEN_ALLOWANCE_AMOUNT = new BigNumber(2)
   .pow(256)
   .minus(1)

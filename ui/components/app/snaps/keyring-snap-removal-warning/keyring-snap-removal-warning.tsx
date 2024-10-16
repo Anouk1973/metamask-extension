@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { getAccountLink } from '@metamask/etherscan-link';
-// @ts-expect-error see: https://github.com/MetaMask/snaps/pull/2174
 import { Snap } from '@metamask/snaps-utils';
 import { useSelector } from 'react-redux';
 import {
@@ -26,7 +25,7 @@ import {
 } from '../../../../helpers/constants/design-system';
 import { useI18nContext } from '../../../../hooks/useI18nContext';
 import InfoTooltip from '../../../ui/info-tooltip';
-import { getProviderConfig } from '../../../../ducks/metamask/metamask';
+import { getCurrentChainId } from '../../../../selectors';
 import { KeyringAccountListItem } from './keyring-account-list-item';
 
 export default function KeyringRemovalSnapWarning({
@@ -51,7 +50,7 @@ export default function KeyringRemovalSnapWarning({
   const [confirmedRemoval, setConfirmedRemoval] = useState(false);
   const [confirmationInput, setConfirmationInput] = useState('');
   const [error, setError] = useState(false);
-  const { chainId } = useSelector(getProviderConfig);
+  const chainId = useSelector(getCurrentChainId);
 
   useEffect(() => {
     setShowConfirmation(keyringAccounts.length === 0);
@@ -152,6 +151,9 @@ export default function KeyringRemovalSnapWarning({
                     setConfirmedRemoval(
                       validateConfirmationInput(e.target.value),
                     );
+                  }}
+                  onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                    e.preventDefault();
                   }}
                   error={error}
                   inputProps={{

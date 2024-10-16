@@ -1,51 +1,76 @@
+import { screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import configureMockStore from 'redux-mock-store';
+import {
+  getMockApproveConfirmState,
+  getMockContractInteractionConfirmState,
+  getMockPersonalSignConfirmState,
+  getMockSetApprovalForAllConfirmState,
+  getMockTypedSignConfirmState,
+} from '../../../../../../test/data/confirmations/helper';
+import { renderWithConfirmContextProvider } from '../../../../../../test/lib/confirmations/render-helpers';
+import Info from './info';
 
-import { renderWithProvider } from '../../../../../../test/lib/render-helpers';
-import ConfirmTitle from './info';
+jest.mock(
+  '../../../../../components/app/alert-system/contexts/alertMetricsContext',
+  () => ({
+    useAlertMetrics: jest.fn(() => ({
+      trackAlertMetrics: jest.fn(),
+    })),
+  }),
+);
 
-const mockPersonalSign = {
-  id: '0050d5b0-c023-11ee-a0cb-3390a510a0ab',
-  status: 'unapproved',
-  time: new Date().getTime(),
-  type: 'personal_sign',
-  securityProviderResponse: null,
-  msgParams: {
-    from: '0x8eeee1781fd885ff5ddef7789486676961873d12',
-    data: '0x4578616d706c652060706572736f6e616c5f7369676e60206d657373616765',
-    origin: 'https://metamask.github.io',
-    siwe: { isSIWEMessage: false, parsedMessage: null },
-  },
-};
+jest.mock('../../../../../store/actions', () => ({
+  ...jest.requireActual('../../../../../store/actions'),
+  getGasFeeTimeEstimate: jest.fn().mockResolvedValue({
+    lowerTimeBound: 0,
+    upperTimeBound: 60000,
+  }),
+}));
 
 describe('Info', () => {
-  it('renders origin for personal sign request', () => {
-    const mockState = {
-      confirm: {
-        currentConfirmation: mockPersonalSign,
-      },
-    };
-    const mockStore = configureMockStore([])(mockState);
-    const { getByText } = renderWithProvider(<ConfirmTitle />, mockStore);
-
-    expect(getByText('Origin')).toBeInTheDocument();
-    expect(getByText('https://metamask.github.io')).toBeInTheDocument();
+  it('renders info section for personal sign request', () => {
+    const state = getMockPersonalSignConfirmState();
+    const mockStore = configureMockStore([])(state);
+    const { container } = renderWithConfirmContextProvider(<Info />, mockStore);
+    expect(container).toMatchSnapshot();
   });
 
-  it('does not render if required data is not present in the transaction', () => {
-    const mockState = {
-      confirm: {
-        currentConfirmation: {
-          id: '0050d5b0-c023-11ee-a0cb-3390a510a0ab',
-          status: 'unapproved',
-          time: new Date().getTime(),
-          type: 'json_request',
-        },
-      },
-    };
-    const mockStore = configureMockStore([])(mockState);
-    const { queryByText } = renderWithProvider(<ConfirmTitle />, mockStore);
+  it('renders info section for typed sign request', () => {
+    const state = getMockTypedSignConfirmState();
+    const mockStore = configureMockStore([])(state);
+    const { container } = renderWithConfirmContextProvider(<Info />, mockStore);
+    expect(container).toMatchSnapshot();
+  });
 
-    expect(queryByText('Origin')).not.toBeInTheDocument();
+  it('renders info section for contract interaction request', () => {
+    const state = getMockContractInteractionConfirmState();
+    const mockStore = configureMockStore([])(state);
+    const { container } = renderWithConfirmContextProvider(<Info />, mockStore);
+    expect(container).toMatchSnapshot();
+  });
+
+  it('renders info section for approve request', async () => {
+    const state = getMockApproveConfirmState();
+    const mockStore = configureMockStore([])(state);
+    const { container } = renderWithConfirmContextProvider(<Info />, mockStore);
+
+    await waitFor(() => {
+      expect(screen.getByText('Speed')).toBeInTheDocument();
+    });
+
+    expect(container).toMatchSnapshot();
+  });
+
+  it('renders info section for setApprovalForAll request', async () => {
+    const state = getMockSetApprovalForAllConfirmState();
+    const mockStore = configureMockStore([])(state);
+    const { container } = renderWithConfirmContextProvider(<Info />, mockStore);
+
+    await waitFor(() => {
+      expect(screen.getByText('Speed')).toBeInTheDocument();
+    });
+
+    expect(container).toMatchSnapshot();
   });
 });

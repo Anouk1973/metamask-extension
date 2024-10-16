@@ -24,6 +24,7 @@ import {
   SEVERITIES,
   TextVariant,
   BLOCK_SIZES,
+  FontWeight,
 } from '../../../helpers/constants/design-system';
 import {
   fetchQuotesAndSetQuoteState,
@@ -40,20 +41,18 @@ import {
   setFromTokenError,
   setMaxSlippage,
   setReviewSwapClickedTimestamp,
-  getSmartTransactionsOptInStatus,
-  getSmartTransactionsEnabled,
   getCurrentSmartTransactionsEnabled,
   getFromTokenInputValue,
   getFromTokenError,
   getMaxSlippage,
   getIsFeatureFlagLoaded,
-  getCurrentSmartTransactionsError,
   getFetchingQuotes,
   getSwapsErrorKey,
   getAggregatorMetadata,
   getTransactionSettingsOpened,
   setTransactionSettingsOpened,
   getLatestAddedTokenTo,
+  getUsedQuote,
 } from '../../../ducks/swaps/swaps';
 import {
   getSwapsDefaultToken,
@@ -64,12 +63,21 @@ import {
   getTokenList,
   isHardwareWallet,
   getHardwareWalletType,
+  getIsBridgeChain,
+  getMetaMetricsId,
+  getParticipateInMetaMetrics,
+  getDataCollectionForMarketing,
 } from '../../../selectors';
+import {
+  getSmartTransactionsOptInStatus,
+  getSmartTransactionsEnabled,
+} from '../../../../shared/modules/selectors';
 import {
   getValueFromWeiHex,
   hexToDecimal,
 } from '../../../../shared/modules/conversion.utils';
 import { getURLHostName } from '../../../helpers/utils/util';
+import { getPortfolioUrl } from '../../../helpers/utils/portfolio';
 import { usePrevious } from '../../../hooks/usePrevious';
 import { useTokenTracker } from '../../../hooks/useTokenTracker';
 import { useTokenFiatAmount } from '../../../hooks/useTokenFiatAmount';
@@ -96,7 +104,6 @@ import {
   ignoreTokens,
   clearSwapsQuotes,
   stopPollingForQuotes,
-  setSmartTransactionsOptInStatus,
   clearSmartTransactionFees,
   setSwapsErrorKey,
   setBackgroundSwapRouteState,
@@ -134,7 +141,6 @@ import SwapsBannerAlert from '../swaps-banner-alert/swaps-banner-alert';
 import SwapsFooter from '../swaps-footer';
 import SelectedToken from '../selected-token/selected-token';
 import ListWithSearch from '../list-with-search/list-with-search';
-import SmartTransactionsPopover from './smart-transactions-popover';
 import QuotesLoadingAnimation from './quotes-loading-animation';
 import ReviewQuote from './review-quote';
 
@@ -185,9 +191,10 @@ export default function PrepareSwapPage({
   const rpcPrefs = useSelector(getRpcPrefsForCurrentProvider, shallowEqual);
   const tokenList = useSelector(getTokenList, isEqual);
   const quotes = useSelector(getQuotes, isEqual);
+  const usedQuote = useSelector(getUsedQuote, isEqual);
   const latestAddedTokenTo = useSelector(getLatestAddedTokenTo, isEqual);
   const numberOfQuotes = Object.keys(quotes).length;
-  const areQuotesPresent = numberOfQuotes > 0;
+  const areQuotesPresent = numberOfQuotes > 0 && usedQuote;
   const swapsErrorKey = useSelector(getSwapsErrorKey);
   const aggregatorMetadata = useSelector(getAggregatorMetadata, shallowEqual);
   const transactionSettingsOpened = useSelector(
@@ -197,6 +204,8 @@ export default function PrepareSwapPage({
   const numberOfAggregators = aggregatorMetadata
     ? Object.keys(aggregatorMetadata).length
     : 0;
+  const isBridgeChain = useSelector(getIsBridgeChain);
+  const metaMetricsId = useSelector(getMetaMetricsId);
 
   const tokenConversionRates = useSelector(getTokenExchangeRates, isEqual);
   const conversionRate = useSelector(getConversionRate);
@@ -211,27 +220,11 @@ export default function PrepareSwapPage({
   );
   const isSmartTransaction =
     currentSmartTransactionsEnabled && smartTransactionsOptInStatus;
-  const smartTransactionsOptInPopoverDisplayed =
-    smartTransactionsOptInStatus !== undefined;
-  const currentSmartTransactionsError = useSelector(
-    getCurrentSmartTransactionsError,
-  );
   const currentCurrency = useSelector(getCurrentCurrency);
   const fetchingQuotes = useSelector(getFetchingQuotes);
   const loadingComplete = !fetchingQuotes && areQuotesPresent;
-
-  const showSmartTransactionsOptInPopover =
-    smartTransactionsEnabled && !smartTransactionsOptInPopoverDisplayed;
-
-  const onManageStxInSettings = (e) => {
-    e?.preventDefault();
-    setSmartTransactionsOptInStatus(true, smartTransactionsOptInStatus);
-    dispatch(setTransactionSettingsOpened(true));
-  };
-
-  const onStartSwapping = () => {
-    setSmartTransactionsOptInStatus(true, smartTransactionsOptInStatus);
-  };
+  const isMetaMetricsEnabled = useSelector(getParticipateInMetaMetrics);
+  const isMarketingEnabled = useSelector(getDataCollectionForMarketing);
 
   const fetchParamsFromToken = isSwapsDefaultTokenSymbol(
     sourceTokenInfo?.symbol,
@@ -713,6 +706,11 @@ export default function PrepareSwapPage({
     !swapsErrorKey && !isReviewSwapButtonDisabled && !areQuotesPresent;
   const showNotEnoughTokenMessage =
     !fromTokenError && balanceError && fromTokenSymbol;
+  const showCrossChainSwapsLink =
+    isBridgeChain &&
+    !showReviewQuote &&
+    !showQuotesLoadingAnimation &&
+    !areQuotesPresent;
 
   const tokenVerifiedOn1Source = occurrences === 1;
 
@@ -786,10 +784,17 @@ export default function PrepareSwapPage({
     );
   }
 
+  const isNonDefaultToken = !isSwapsDefaultTokenSymbol(
+    fromTokenSymbol,
+    chainId,
+  );
+  const hasPositiveFromTokenBalance = rawFromTokenBalance > 0;
+  const isTokenEligibleForMaxBalance =
+    isSmartTransaction || (!isSmartTransaction && isNonDefaultToken);
   const showMaxBalanceLink =
     fromTokenSymbol &&
-    !isSwapsDefaultTokenSymbol(fromTokenSymbol, chainId) &&
-    rawFromTokenBalance > 0;
+    isTokenEligibleForMaxBalance &&
+    hasPositiveFromTokenBalance;
 
   return (
     <div className="prepare-swap-page">
@@ -865,12 +870,6 @@ export default function PrepareSwapPage({
             </Box>
           </ModalContent>
         </Modal>
-
-        <SmartTransactionsPopover
-          onStartSwapping={onStartSwapping}
-          onManageStxInSettings={onManageStxInSettings}
-          isOpen={showSmartTransactionsOptInPopover}
-        />
 
         <div className="prepare-swap-page__swap-from-content">
           <Box
@@ -1024,6 +1023,45 @@ export default function PrepareSwapPage({
             </div>
           </Box>
         </div>
+        {showCrossChainSwapsLink && (
+          <ButtonLink
+            endIconName={IconName.Export}
+            endIconProps={{
+              size: IconSize.Xs,
+            }}
+            variant={TextVariant.bodySm}
+            marginTop={2}
+            fontWeight={FontWeight.Normal}
+            onClick={() => {
+              const portfolioUrl = getPortfolioUrl(
+                'bridge',
+                'ext_bridge_prepare_swap_link',
+                metaMetricsId,
+                isMetaMetricsEnabled,
+                isMarketingEnabled,
+              );
+
+              global.platform.openTab({
+                url: `${portfolioUrl}&token=${fromTokenAddress}`,
+              });
+
+              trackEvent({
+                category: MetaMetricsEventCategory.Swaps,
+                event: MetaMetricsEventName.BridgeLinkClicked,
+                properties: {
+                  location: 'Swaps',
+                  text: 'Swap across networks with MetaMask Portfolio',
+                  chain_id: chainId,
+                  token_symbol: fromTokenSymbol,
+                },
+              });
+            }}
+            target="_blank"
+            data-testid="prepare-swap-page-cross-chain-swaps-link"
+          >
+            {t('crossChainSwapsLink')}
+          </ButtonLink>
+        )}
         {!showReviewQuote && toTokenIsNotDefault && occurrences < 2 && (
           <Box display={DISPLAY.FLEX} marginTop={2}>
             <BannerAlert
@@ -1082,25 +1120,19 @@ export default function PrepareSwapPage({
             />
           </Box>
         )}
-        {transactionSettingsOpened &&
-          (smartTransactionsEnabled ||
-            (!smartTransactionsEnabled && !isDirectWrappingEnabled)) && (
-            <TransactionSettings
-              onSelect={(newSlippage) => {
-                dispatch(setMaxSlippage(newSlippage));
-              }}
-              maxAllowedSlippage={MAX_ALLOWED_SLIPPAGE}
-              currentSlippage={maxSlippage}
-              smartTransactionsEnabled={smartTransactionsEnabled}
-              smartTransactionsOptInStatus={smartTransactionsOptInStatus}
-              setSmartTransactionsOptInStatus={setSmartTransactionsOptInStatus}
-              currentSmartTransactionsError={currentSmartTransactionsError}
-              isDirectWrappingEnabled={isDirectWrappingEnabled}
-              onModalClose={() => {
-                dispatch(setTransactionSettingsOpened(false));
-              }}
-            />
-          )}
+        {transactionSettingsOpened && !isDirectWrappingEnabled && (
+          <TransactionSettings
+            onSelect={(newSlippage) => {
+              dispatch(setMaxSlippage(newSlippage));
+            }}
+            maxAllowedSlippage={MAX_ALLOWED_SLIPPAGE}
+            currentSlippage={maxSlippage}
+            isDirectWrappingEnabled={isDirectWrappingEnabled}
+            onModalClose={() => {
+              dispatch(setTransactionSettingsOpened(false));
+            }}
+          />
+        )}
         {showQuotesLoadingAnimation && (
           <QuotesLoadingAnimation
             quoteCount={quoteCount}

@@ -2,7 +2,9 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import Identicon from '../../ui/identicon';
 import AccountMismatchWarning from '../../ui/account-mismatch-warning/account-mismatch-warning.component';
-import { toChecksumHexAddress } from '../../../../shared/modules/hexstring-utils';
+// TODO: Remove restricted import
+// eslint-disable-next-line import/no-restricted-paths
+import { normalizeSafeAddress } from '../../../../app/scripts/lib/multichain/address';
 
 export default function AccountListItem({
   account,
@@ -14,7 +16,11 @@ export default function AccountListItem({
   hideDefaultMismatchWarning = false,
   ///: END:ONLY_INCLUDE_IF
 }) {
-  const { name, address, balance } = account || {};
+  const {
+    metadata: { name },
+    address,
+    balance,
+  } = account;
 
   let showDefaultMismatchWarning = true;
 
@@ -49,7 +55,7 @@ export default function AccountListItem({
       </div>
       {displayAddress && name && (
         <div className="account-list-item__account-address">
-          {toChecksumHexAddress(address)}
+          {normalizeSafeAddress(address)}
         </div>
       )}
     </div>
@@ -61,10 +67,21 @@ AccountListItem.propTypes = {
    * An account object that has name, address, and balance data
    */
   account: PropTypes.shape({
+    id: PropTypes.string.isRequired,
     address: PropTypes.string.isRequired,
-    balance: PropTypes.string,
-    name: PropTypes.string,
-  }),
+    balance: PropTypes.string.isRequired,
+    metadata: PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      snap: PropTypes.shape({
+        id: PropTypes.string.isRequired,
+        name: PropTypes.string,
+        enabled: PropTypes.bool,
+      }),
+      keyring: PropTypes.shape({
+        type: PropTypes.string.isRequired,
+      }).isRequired,
+    }).isRequired,
+  }).isRequired,
   /**
    * Additional className to add to the root div element of AccountListItem
    */

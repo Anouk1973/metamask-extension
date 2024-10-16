@@ -19,8 +19,9 @@ import { useAdvancedGasFeePopoverContext } from '../../context';
 import AdvancedGasFeeInputSubtext from '../../advanced-gas-fee-input-subtext';
 import { decGWEIToHexWEI } from '../../../../../../../shared/modules/conversion.utils';
 import { Numeric } from '../../../../../../../shared/modules/Numeric';
+import { IGNORE_GAS_LIMIT_CHAIN_IDS } from '../../../../constants';
 
-const validatePriorityFee = (value, gasFeeEstimates) => {
+const validatePriorityFee = (value, gasFeeEstimates, chainId) => {
   const priorityFeeValue = new Numeric(value, 10);
   if (priorityFeeValue.lessThan(0, 10)) {
     return 'editGasMaxPriorityFeeBelowMinimumV2';
@@ -30,7 +31,8 @@ const validatePriorityFee = (value, gasFeeEstimates) => {
     priorityFeeValue.lessThan(
       gasFeeEstimates.low.suggestedMaxPriorityFeePerGas,
       10,
-    )
+    ) &&
+    IGNORE_GAS_LIMIT_CHAIN_IDS.includes(chainId)
   ) {
     return 'editGasMaxPriorityFeeLowV2';
   }
@@ -57,6 +59,7 @@ const PriorityFeeInput = () => {
     estimateUsed,
     gasFeeEstimates,
     maxPriorityFeePerGas: maxPriorityFeePerGasNumber,
+    transaction: { chainId },
   } = useGasFeeContext();
   const maxPriorityFeePerGas = new Numeric(
     maxPriorityFeePerGasNumber,
@@ -66,19 +69,24 @@ const PriorityFeeInput = () => {
     latestPriorityFeeRange,
     historicalPriorityFeeRange,
     priorityFeeTrend,
-  } = gasFeeEstimates;
+  } = gasFeeEstimates ?? {};
   const [priorityFeeError, setPriorityFeeError] = useState();
 
-  const [priorityFee, setPriorityFee] = useState(() => {
-    if (
-      estimateUsed !== PriorityLevels.custom &&
-      advancedGasFeeValues?.priorityFee &&
-      editGasMode !== EditGasModes.swaps
-    ) {
-      return advancedGasFeeValues.priorityFee;
+  const defaultPriorityFee =
+    estimateUsed !== PriorityLevels.custom &&
+    advancedGasFeeValues?.priorityFee &&
+    editGasMode !== EditGasModes.swaps
+      ? advancedGasFeeValues.priorityFee
+      : maxPriorityFeePerGas;
+
+  const [priorityFee, setPriorityFee] = useState(
+    defaultPriorityFee > 0 ? defaultPriorityFee : undefined,
+  );
+  useEffect(() => {
+    if (priorityFee === undefined && defaultPriorityFee > 0) {
+      setPriorityFee(defaultPriorityFee);
     }
-    return maxPriorityFeePerGas;
-  });
+  }, [priorityFee, defaultPriorityFee, setPriorityFee]);
 
   const { currency, numberOfDecimals } = useUserPreferencedCurrency(PRIMARY);
 
@@ -93,13 +101,14 @@ const PriorityFeeInput = () => {
 
   useEffect(() => {
     setMaxPriorityFeePerGas(priorityFee);
-    const error = validatePriorityFee(priorityFee, gasFeeEstimates);
+    const error = validatePriorityFee(priorityFee, gasFeeEstimates, chainId);
     setErrorValue(
       'maxPriorityFeePerGas',
       error === 'editGasMaxPriorityFeeBelowMinimumV2',
     );
     setPriorityFeeError(error);
   }, [
+    chainId,
     gasFeeEstimates,
     priorityFee,
     setErrorValue,

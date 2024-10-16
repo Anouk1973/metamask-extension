@@ -2,9 +2,9 @@ import React, { useContext } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useHistory, useParams } from 'react-router-dom';
 import {
-  unconfirmedTransactionsHashSelector,
   unapprovedDecryptMsgsSelector,
   unapprovedEncryptionPublicKeyMsgsSelector,
+  unconfirmedTransactionsListSelector,
 } from '../../../../../selectors';
 import { I18nContext } from '../../../../../contexts/i18n';
 import {
@@ -12,6 +12,8 @@ import {
   SIGNATURE_REQUEST_PATH,
 } from '../../../../../helpers/constants/routes';
 import { clearConfirmTransaction } from '../../../../../ducks/confirm-transaction/confirm-transaction.duck';
+import { QueueType } from '../../../../../../shared/constants/metametrics';
+import { useQueuedConfirmationsEvent } from '../../../hooks/useQueuedConfirmationEvents';
 
 const ConfirmPageContainerNavigation = () => {
   const t = useContext(I18nContext);
@@ -23,9 +25,8 @@ const ConfirmPageContainerNavigation = () => {
   const unapprovedEncryptionPublicKeyMsgs = useSelector(
     unapprovedEncryptionPublicKeyMsgsSelector,
   );
-  const unconfirmedTransactions = useSelector(
-    unconfirmedTransactionsHashSelector,
-  );
+  const unconfirmedTransactions =
+    useSelector(unconfirmedTransactionsListSelector) ?? [];
 
   const enumUnapprovedDecryptMsgsKey = Object.keys(unapprovedDecryptMsgs || {});
   const enumUnapprovedEncryptMsgsKey = Object.keys(
@@ -36,9 +37,9 @@ const ConfirmPageContainerNavigation = () => {
     ...enumUnapprovedEncryptMsgsKey,
   ];
 
-  const enumUnapprovedTxs = Object.keys(unconfirmedTransactions).filter(
-    (key) => enumDecryptAndEncryptMsgs.includes(key) === false,
-  );
+  const enumUnapprovedTxs = unconfirmedTransactions
+    .map((tx) => tx.id)
+    .filter((key) => enumDecryptAndEncryptMsgs.includes(key) === false);
 
   const currentPosition = enumUnapprovedTxs.indexOf(id);
 
@@ -53,13 +54,16 @@ const ConfirmPageContainerNavigation = () => {
   const onNextTx = (txId) => {
     if (txId) {
       dispatch(clearConfirmTransaction());
+      const position = enumUnapprovedTxs.indexOf(txId);
       history.push(
-        unconfirmedTransactions[txId]?.msgParams
+        unconfirmedTransactions[position]?.msgParams
           ? `${CONFIRM_TRANSACTION_ROUTE}/${txId}${SIGNATURE_REQUEST_PATH}`
           : `${CONFIRM_TRANSACTION_ROUTE}/${txId}`,
       );
     }
   };
+
+  useQueuedConfirmationsEvent(QueueType.NavigationHeader);
 
   return (
     <div

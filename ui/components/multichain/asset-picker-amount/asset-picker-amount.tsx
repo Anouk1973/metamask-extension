@@ -1,13 +1,8 @@
-import React, { useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import {
-  Box,
-  ButtonIcon,
-  ButtonIconSize,
-  IconName,
-  Label,
-  Text,
-} from '../../component-library';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { TokenListMap } from '@metamask/assets-controllers';
+import { useI18nContext } from '../../../hooks/useI18nContext';
+import { Box, Text } from '../../component-library';
 import {
   AlignItems,
   BackgroundColor,
@@ -15,92 +10,133 @@ import {
   BorderRadius,
   BorderStyle,
   Display,
-  IconColor,
   TextColor,
   TextVariant,
-  FontWeight,
 } from '../../../helpers/constants/design-system';
-
-import { AssetType } from '../../../../shared/constants/transaction';
-import UserPreferencedCurrencyInput from '../../app/user-preferenced-currency-input/user-preferenced-currency-input.container';
-import UserPreferencedTokenInput from '../../app/user-preferenced-token-input/user-preferenced-token-input.component';
 import {
-  Amount,
-  Asset,
+  getIpfsGateway,
+  getNativeCurrencyImage,
+  getSelectedInternalAccount,
+  getTokenList,
+} from '../../../selectors';
+
+import {
+  AssetType,
+  TokenStandard,
+} from '../../../../shared/constants/transaction';
+import {
   getCurrentDraftTransaction,
-  updateSendAmount,
+  getIsNativeSendPossible,
+  getSendMaxModeState,
+  type Amount,
+  type Asset,
 } from '../../../ducks/send';
-import { useI18nContext } from '../../../hooks/useI18nContext';
-import UserPreferencedCurrencyDisplay from '../../app/user-preferenced-currency-display';
-import { PRIMARY } from '../../../helpers/constants/common';
-import TokenBalance from '../../ui/token-balance';
-import { getSelectedIdentity } from '../../../selectors';
+import { NEGATIVE_OR_ZERO_AMOUNT_TOKENS_ERROR } from '../../../pages/confirmations/send/send.constants';
+import { getNativeCurrency } from '../../../ducks/metamask/metamask';
+import useGetAssetImageUrl from '../../../hooks/useGetAssetImageUrl';
 import MaxClearButton from './max-clear-button';
-import AssetPicker from './asset-picker/asset-picker';
+import {
+  AssetPicker,
+  type AssetPickerProps,
+} from './asset-picker/asset-picker';
+import { SwappableCurrencyInput } from './swappable-currency-input/swappable-currency-input';
+import { AssetBalance } from './asset-balance/asset-balance';
 
-const renderCurrencyInput = (asset: Asset, amount: Amount) => {
-  const dispatch = useDispatch();
-  const t = useI18nContext();
-
-  if (asset.type === AssetType.native) {
-    return (
-      <>
-        <UserPreferencedCurrencyInput
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore: I'm not sure why the types don't find `onChange`
-          onChange={(newAmount: string) =>
-            dispatch(updateSendAmount(newAmount))
-          }
-          hexValue={amount.value}
-          className="asset-picker-amount__input"
-          swapIcon={(onClick: React.MouseEventHandler) => (
-            <ButtonIcon
-              backgroundColor={BackgroundColor.transparent}
-              iconName={IconName.SwapVertical}
-              ariaLabel={t('switchInputCurrency')}
-              size={ButtonIconSize.Sm}
-              color={IconColor.primaryDefault}
-              onClick={onClick}
-            />
-          )}
-        />
-      </>
-    );
+type AssetPickerAmountProps = OverridingUnion<
+  AssetPickerProps,
+  {
+    // all of these props should be explicitly received
+    asset: Asset;
+    amount: Amount;
+    isAmountLoading?: boolean;
+    error?: string;
+    /**
+     * Callback for when the amount changes; disables the input when undefined
+     */
+    onAmountChange?: (
+      newAmountRaw: string,
+      newAmountFormatted?: string,
+    ) => void;
   }
-  if (asset.type === AssetType.NFT) {
-    return (
-      <>
-        <Box marginLeft={'auto'}>
-          <Text variant={TextVariant.bodySm}>{t('tokenId')}</Text>
-          <Text
-            variant={TextVariant.bodySm}
-            fontWeight={FontWeight.Bold}
-            marginLeft={10}
-          >
-            {asset?.details?.tokenId}
-          </Text>
-        </Box>
-      </>
-    );
-  }
-
-  return (
-    <UserPreferencedTokenInput
-      onChange={(newAmount: string) => dispatch(updateSendAmount(newAmount))}
-      token={asset.details}
-      value={amount.value}
-      className="asset-picker-amount__input"
-    />
-  );
-};
+>;
 
 // A component that combines an asset picker with an input for the amount to send.
-export const AssetPickerAmount = () => {
+export const AssetPickerAmount = ({
+  asset,
+  amount,
+  onAmountChange,
+  isAmountLoading,
+  error: passedError,
+  ...assetPickerProps
+}: AssetPickerAmountProps) => {
+  const selectedAccount = useSelector(getSelectedInternalAccount);
   const t = useI18nContext();
-  const { asset, amount } = useSelector(getCurrentDraftTransaction);
-  const selectedAccount = useSelector(getSelectedIdentity);
 
-  const { error } = amount;
+  const { swapQuotesError, sendAsset, receiveAsset } = useSelector(
+    getCurrentDraftTransaction,
+  );
+  const isDisabled = !onAmountChange;
+  const isSwapsErrorShown = isDisabled && swapQuotesError;
+
+  const isMaxMode = useSelector(getSendMaxModeState);
+  const isNativeSendPossible = useSelector(getIsNativeSendPossible);
+
+  const nativeCurrencySymbol = useSelector(getNativeCurrency);
+  const nativeCurrencyImageUrl = useSelector(getNativeCurrencyImage);
+  const tokenList = useSelector(getTokenList) as TokenListMap;
+
+  const ipfsGateway = useSelector(getIpfsGateway);
+
+  useEffect(() => {
+    // if this input is immutable – avoids double fire
+    if (isDisabled) {
+      return;
+    }
+
+    // if native send is not possible
+    if (isNativeSendPossible) {
+      return;
+    }
+
+    // if max mode already enabled
+    if (!isMaxMode) {
+      return;
+    }
+
+    // disable max mode and replace with "0"
+    onAmountChange('0x0');
+  }, [isNativeSendPossible]);
+
+  const [isFocused, setIsFocused] = useState(false);
+  const [isNFTInputChanged, setIsTokenInputChanged] = useState(false);
+  const nftImageURL = useGetAssetImageUrl(
+    asset?.details?.image ?? null,
+    ipfsGateway,
+  );
+
+  const handleChange = useCallback(
+    (newAmountRaw, newAmountFormatted) => {
+      if (!isNFTInputChanged && asset.type === AssetType.NFT) {
+        setIsTokenInputChanged(true);
+      }
+      onAmountChange?.(newAmountRaw, newAmountFormatted);
+    },
+    [onAmountChange, isNFTInputChanged, asset.type],
+  );
+
+  useEffect(() => {
+    setIsTokenInputChanged(false);
+  }, [asset]);
+
+  const { error: rawError } = amount;
+
+  // if input hasn't been touched, don't show the zero amount error
+  const isLowBalanceErrorInvalid =
+    rawError === NEGATIVE_OR_ZERO_AMOUNT_TOKENS_ERROR &&
+    asset.type === AssetType.NFT &&
+    !isNFTInputChanged;
+
+  const error = rawError && !isLowBalanceErrorInvalid ? rawError : undefined;
 
   useEffect(() => {
     if (!asset) {
@@ -108,76 +144,95 @@ export const AssetPickerAmount = () => {
     }
   }, [selectedAccount]);
 
-  const balanceColor = error
-    ? TextColor.errorDefault
-    : TextColor.textAlternative;
+  let borderColor = BorderColor.borderMuted;
+
+  if (isDisabled) {
+    // if disabled, do not show source-side border colors
+    if (isSwapsErrorShown) {
+      borderColor = BorderColor.errorDefault;
+    }
+  } else if (error) {
+    borderColor = BorderColor.errorDefault;
+  } else if (isFocused) {
+    borderColor = BorderColor.primaryDefault;
+  }
+
+  const isSwapAndSendFromNative =
+    sendAsset.type === AssetType.native &&
+    receiveAsset.type !== AssetType.native;
+
+  let standardizedAsset;
+  if (asset?.type === AssetType.native) {
+    standardizedAsset = {
+      type: asset.type,
+      image: nativeCurrencyImageUrl,
+      symbol: nativeCurrencySymbol as string,
+    };
+  } else if (asset?.type === AssetType.token && asset?.details?.symbol) {
+    standardizedAsset = {
+      type: asset.type,
+      image:
+        nftImageURL ||
+        (tokenList &&
+          asset.details?.address &&
+          tokenList[asset.details.address.toLowerCase()]?.iconUrl),
+      symbol: asset.details.symbol,
+      address: asset.details.address,
+    };
+  } else if (
+    asset?.type === AssetType.NFT &&
+    asset?.details?.tokenId !== undefined &&
+    asset?.details?.image
+  ) {
+    standardizedAsset = {
+      type: asset.type as AssetType.NFT,
+      tokenId: asset.details.tokenId,
+      image: asset.details.image,
+      symbol: asset.details.symbol,
+    };
+  }
 
   return (
     <Box className="asset-picker-amount">
-      <Box display={Display.Flex}>
-        <Label>
-          {asset.type === AssetType.NFT ? t('asset') : t('amount')}:
-        </Label>
-        <MaxClearButton asset={asset} />
-      </Box>
       <Box
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         display={Display.Flex}
         alignItems={AlignItems.center}
         backgroundColor={BackgroundColor.backgroundDefault}
-        paddingLeft={4}
-        paddingRight={4}
         borderRadius={BorderRadius.LG}
-        borderColor={
-          amount.error ? BorderColor.errorDefault : BorderColor.primaryDefault
-        }
+        borderColor={borderColor}
         borderStyle={BorderStyle.solid}
-        borderWidth={2}
-        marginTop={2}
-        paddingTop={3}
-        paddingBottom={3}
+        borderWidth={1}
+        marginBottom={1}
+        padding={1}
+        // apply extra padding if there isn't an input component to apply it
+        paddingTop={asset.details?.standard === TokenStandard.ERC721 ? 4 : 1}
+        paddingBottom={asset.details?.standard === TokenStandard.ERC721 ? 4 : 1}
       >
-        <AssetPicker asset={asset} />
-        {renderCurrencyInput(asset, amount)}
+        <AssetPicker asset={standardizedAsset} {...assetPickerProps} />
+        <SwappableCurrencyInput
+          onAmountChange={onAmountChange ? handleChange : undefined}
+          assetType={asset.type}
+          asset={asset}
+          amount={amount}
+          isAmountLoading={isAmountLoading}
+        />
       </Box>
       <Box display={Display.Flex}>
-        <Text color={balanceColor} marginRight={1} variant={TextVariant.bodySm}>
-          {t('balance')}:
-        </Text>
-        {asset.type === AssetType.native ? (
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore: Other props are optional but the compiler expects them
-          <UserPreferencedCurrencyDisplay
-            value={asset.balance}
-            type={PRIMARY}
-            textProps={{
-              color: balanceColor,
-              variant: TextVariant.bodySm,
-            }}
-            suffixProps={{
-              color: balanceColor,
-              variant: TextVariant.bodySm,
-            }}
-          />
-        ) : (
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore: Details should be defined for token assets
-          <TokenBalance
-            token={asset.details}
-            textProps={{
-              color: balanceColor,
-              variant: TextVariant.bodySm,
-            }}
-            suffixProps={{
-              color: balanceColor,
-              variant: TextVariant.bodySm,
-            }}
-          />
+        {/* Only show balance if mutable */}
+        {onAmountChange && (
+          <AssetBalance asset={asset} error={passedError || error} />
         )}
-        {error ? (
+        {isSwapsErrorShown && (
           <Text variant={TextVariant.bodySm} color={TextColor.errorDefault}>
-            . {t(error)}
+            {t(swapQuotesError)}
           </Text>
-        ) : null}
+        )}
+        {/* The fiat value will always leave dust and is often inaccurate anyways */}
+        {onAmountChange && isNativeSendPossible && !isSwapAndSendFromNative && (
+          <MaxClearButton asset={asset} />
+        )}
       </Box>
     </Box>
   );

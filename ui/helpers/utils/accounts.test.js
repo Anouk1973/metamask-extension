@@ -1,19 +1,23 @@
 import {
   GOERLI_DISPLAY_NAME,
   LINEA_GOERLI_DISPLAY_NAME,
+  LINEA_SEPOLIA_DISPLAY_NAME,
   MAINNET_DISPLAY_NAME,
   SEPOLIA_DISPLAY_NAME,
 } from '../../../shared/constants/network';
 import { BackgroundColor } from '../constants/design-system';
 import { KeyringType } from '../../../shared/constants/keyring';
 import { HardwareKeyringNames } from '../../../shared/constants/hardware-wallets';
+import mockState from '../../../test/data/mock-state.json';
 import {
   getAccountLabel,
   getAccountNameErrorMessage,
   getAvatarNetworkColor,
 } from './accounts';
 
-const mockAccounts = [{ name: 'Account 1' }, { name: 'Account 2' }];
+const mockAccounts = Object.values(
+  mockState.metamask.internalAccounts.accounts,
+);
 
 const mockLocalization = { t: jest.fn().mockReturnValue('Account') };
 
@@ -71,6 +75,11 @@ describe('Accounts', () => {
         BackgroundColor.lineaGoerli,
       );
     });
+    it('should return lineaSepolia', () => {
+      expect(getAvatarNetworkColor(LINEA_SEPOLIA_DISPLAY_NAME)).toStrictEqual(
+        BackgroundColor.lineaSepolia,
+      );
+    });
     it('should return sepolia', () => {
       expect(getAvatarNetworkColor(SEPOLIA_DISPLAY_NAME)).toStrictEqual(
         BackgroundColor.sepolia,
@@ -96,7 +105,6 @@ describe('Accounts', () => {
       options: {},
       methods: [
         'personal_sign',
-        'eth_sign',
         'eth_signTransaction',
         'eth_signTypedData_v1',
         'eth_signTypedData_v3',

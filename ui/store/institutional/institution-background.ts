@@ -13,13 +13,14 @@ import {
 } from '../background-connection';
 import { MetaMaskReduxDispatch, MetaMaskReduxState } from '../store';
 import { isErrorWithMessage } from '../../../shared/modules/error';
+import { ConnectionRequest } from '../../../shared/constants/mmi-controller';
 
 export function showInteractiveReplacementTokenBanner({
   url,
   oldRefreshToken,
 }: {
-  url: string;
-  oldRefreshToken: string;
+  url?: string;
+  oldRefreshToken?: string;
 }) {
   return async (dispatch: MetaMaskReduxDispatch) => {
     try {
@@ -29,6 +30,8 @@ export function showInteractiveReplacementTokenBanner({
           oldRefreshToken,
         },
       ]);
+      // TODO: Replace `any` with type
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       if (err) {
         dispatch(displayWarning(err.message));
@@ -53,11 +56,28 @@ export function setCustodianDeepLink({
   };
 }
 
+export function setNoteToTraderMessage(message: string) {
+  return async (dispatch: MetaMaskReduxDispatch) => {
+    try {
+      await submitRequestToBackground('setNoteToTraderMessage', [message]);
+      // TODO: Replace `any` with type
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      if (error) {
+        dispatch(displayWarning(error.message));
+        throw new Error(error.message);
+      }
+    }
+  };
+}
+
 export function setTypedMessageInProgress(msgId: string) {
   return async (dispatch: MetaMaskReduxDispatch) => {
     dispatch(showLoadingIndication());
     try {
       await submitRequestToBackground('setTypedMessageInProgress', [msgId]);
+      // TODO: Replace `any` with type
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       log.error(error);
       dispatch(displayWarning(error.message));
@@ -73,6 +93,8 @@ export function setPersonalMessageInProgress(msgId: string) {
     dispatch(showLoadingIndication());
     try {
       await submitRequestToBackground('setPersonalMessageInProgress', [msgId]);
+      // TODO: Replace `any` with type
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       log.error(error);
       dispatch(displayWarning(error.message));
@@ -92,11 +114,17 @@ export function setPersonalMessageInProgress(msgId: string) {
 export function mmiActionsFactory() {
   function createAsyncAction(
     name: string,
+    // TODO: Replace `any` with type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     params: any,
+    // TODO: Replace `any` with type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useForceUpdateMetamaskState?: any,
     loadingText?: string,
   ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
     log.debug(`background.${name}`);
+    // TODO: Replace `any` with type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return async (dispatch: any) => {
       if (loadingText) {
         dispatch(showLoadingIndication(loadingText));
@@ -123,6 +151,8 @@ export function mmiActionsFactory() {
     };
   }
 
+  // TODO: Replace `any` with type
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function createAction(name: string, payload: any) {
     return () => {
       callBackgroundMethod(name, [payload], (err) => {
@@ -154,19 +184,6 @@ export function mmiActionsFactory() {
       createAsyncAction(
         'getCustodianAccounts',
         [token, envName, custody, getNonImportedAccounts],
-        forceUpdateMetamaskState,
-        'Getting custodian accounts...',
-      ),
-    // TODO (Bernardo) - It doesn't look like this is being used
-    getCustodianAccountsByAddress: (
-      jwt: string,
-      envName: string,
-      address: string,
-      custody: string,
-    ) =>
-      createAsyncAction(
-        'getCustodianAccountsByAddress',
-        [jwt, envName, address, custody],
         forceUpdateMetamaskState,
         'Getting custodian accounts...',
       ),
@@ -235,5 +252,7 @@ export function mmiActionsFactory() {
       createAsyncAction('setCustodianNewRefreshToken', [
         { address, refreshToken },
       ]),
+    setConnectionRequest: (payload: ConnectionRequest | null) =>
+      createAsyncAction('setConnectionRequest', [payload]),
   };
 }

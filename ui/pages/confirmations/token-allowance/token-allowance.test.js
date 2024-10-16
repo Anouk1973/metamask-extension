@@ -2,10 +2,12 @@ import React from 'react';
 import configureMockStore from 'redux-mock-store';
 import { act, fireEvent } from '@testing-library/react';
 import thunk from 'redux-thunk';
-import { NetworkType } from '@metamask/controller-utils';
-import { NetworkStatus } from '@metamask/network-controller';
+import { EthAccountType } from '@metamask/keyring-api';
 import { renderWithProvider } from '../../../../test/lib/render-helpers';
 import { KeyringType } from '../../../../shared/constants/keyring';
+import { ETH_EOA_METHODS } from '../../../../shared/constants/eth-methods';
+import { mockNetworkState } from '../../../../test/stub/networks';
+import { CHAIN_IDS } from '../../../../shared/constants/network';
 import TokenAllowance from './token-allowance';
 
 const testTokenAddress = '0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F';
@@ -14,6 +16,7 @@ const state = {
     customTokenAmount: '1',
   },
   metamask: {
+    ...mockNetworkState({ chainId: CHAIN_IDS.MAINNET }),
     accounts: {
       '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc': {
         address: '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc',
@@ -21,16 +24,36 @@ const state = {
       },
     },
     gasEstimateType: 'none',
-    selectedAddress: '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc',
-    identities: {
-      '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc': {
-        address: '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc',
-        name: 'Account 1',
+    internalAccounts: {
+      accounts: {
+        'cf8dace4-9439-4bd4-b3a8-88c821c8fcb3': {
+          address: '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc',
+          id: 'cf8dace4-9439-4bd4-b3a8-88c821c8fcb3',
+          metadata: {
+            name: 'Account 1',
+            keyring: {
+              type: 'HD Key Tree',
+            },
+          },
+          options: {},
+          methods: ETH_EOA_METHODS,
+          type: EthAccountType.Eoa,
+        },
+        '07c2cfec-36c9-46c4-8115-3836d3ac9047': {
+          address: '0xc42edfcc21ed14dda456aa0756c153f7985d8813',
+          id: '07c2cfec-36c9-46c4-8115-3836d3ac9047',
+          metadata: {
+            name: 'Account 2',
+            keyring: {
+              type: 'HD Key Tree',
+            },
+          },
+          options: {},
+          methods: ETH_EOA_METHODS,
+          type: EthAccountType.Eoa,
+        },
       },
-      '0xc42edfcc21ed14dda456aa0756c153f7985d8813': {
-        address: '0xc42edfcc21ed14dda456aa0756c153f7985d8813',
-        name: 'Account 2',
-      },
+      selectedAccount: 'cf8dace4-9439-4bd4-b3a8-88c821c8fcb3',
     },
     accountsByChainId: {
       '0x1': {
@@ -49,17 +72,7 @@ const state = {
         name: 'Address Book Account 1',
       },
     ],
-    providerConfig: {
-      type: 'mainnet',
-      nickname: '',
-    },
-    selectedNetworkClientId: NetworkType.mainnet,
-    networksMetadata: {
-      [NetworkType.mainnet]: {
-        EIPS: { 1559: true },
-        status: NetworkStatus.Available,
-      },
-    },
+    ...mockNetworkState({ chainId: CHAIN_IDS.MAINNET, nickname: 'mainnet' }),
     preferences: {
       showFiatInTestnets: true,
     },
@@ -90,6 +103,19 @@ const state = {
     ],
     nextNonce: 1,
     customNonceValue: '',
+    pendingApprovals: {
+      '741bad30-45b6-11ef-b6ec-870d18dd6c01': {
+        id: '741bad30-45b6-11ef-b6ec-870d18dd6c01',
+        origin: 'http://127.0.0.1:8080',
+        type: 'transaction',
+        time: 1721383540624,
+        requestData: {
+          txId: '741bad30-45b6-11ef-b6ec-870d18dd6c01',
+        },
+        requestState: null,
+        expectsResult: true,
+      },
+    },
   },
   history: {
     mostRecentOverviewPage: '/',
@@ -106,13 +132,18 @@ const mockShowModal = jest.fn();
 const mockedState = jest.mocked(state);
 
 jest.mock('../../../store/actions', () => ({
-  disconnectGasFeeEstimatePoller: jest.fn(),
   getGasFeeTimeEstimate: jest.fn().mockImplementation(() => Promise.resolve()),
-  getGasFeeEstimatesAndStartPolling: jest
+  gasFeeStartPollingByNetworkClientId: jest
     .fn()
-    .mockImplementation(() => Promise.resolve()),
+    .mockResolvedValue('pollingToken'),
+  gasFeeStopPollingByPollingToken: jest.fn(),
   addPollingTokenToAppState: jest.fn(),
   removePollingTokenFromAppState: jest.fn(),
+  getNetworkConfigurationByNetworkClientId: jest.fn().mockImplementation(() =>
+    Promise.resolve({
+      chainId: '0x5',
+    }),
+  ),
   updateTransactionGasFees: () => ({ type: 'UPDATE_TRANSACTION_PARAMS' }),
   updatePreviousGasParams: () => ({ type: 'UPDATE_TRANSACTION_PARAMS' }),
   createTransactionEventFragment: jest.fn(),
@@ -153,7 +184,6 @@ describe('TokenAllowancePage', () => {
     ethTransactionTotal: '0.0012',
     fiatTransactionTotal: '1.6',
     hexTransactionTotal: '0x44364c5bb0000',
-    isMultiLayerFeeNetwork: false,
     supportsEIP1559: true,
     userAddress: '0x0dcd5d886577d5081b0c52e242ef29e70be3e7bc',
     tokenAddress: '0x55797717b9947b31306f4aac7ad1365c6e3923bd',
@@ -497,7 +527,6 @@ describe('TokenAllowancePage', () => {
       ...state,
       metamask: {
         ...state.metamask,
-        selectedAddress: '0xc42edfcc21ed14dda456aa0756c153f7985d8813',
       },
     };
     const newStore = configureMockStore([thunk])(newState);

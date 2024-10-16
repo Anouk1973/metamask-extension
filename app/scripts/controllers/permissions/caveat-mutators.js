@@ -1,5 +1,6 @@
 import { CaveatMutatorOperation } from '@metamask/permission-controller';
 import { CaveatTypes } from '../../../../shared/constants/permissions';
+import { normalizeSafeAddress } from '../../lib/multichain/address';
 
 /**
  * Factories that construct caveat mutator functions that are passed to
@@ -8,6 +9,9 @@ import { CaveatTypes } from '../../../../shared/constants/permissions';
 export const CaveatMutatorFactories = {
   [CaveatTypes.restrictReturnedAccounts]: {
     removeAccount,
+  },
+  [CaveatTypes.restrictNetworkSwitching]: {
+    removeChainId,
   },
 };
 
@@ -23,8 +27,9 @@ export const CaveatMutatorFactories = {
  * account permissions.
  */
 function removeAccount(targetAccount, existingAccounts) {
+  const checkSumTargetAccount = normalizeSafeAddress(targetAccount);
   const newAccounts = existingAccounts.filter(
-    (address) => address !== targetAccount,
+    (address) => normalizeSafeAddress(address) !== checkSumTargetAccount,
   );
 
   if (newAccounts.length === existingAccounts.length) {
@@ -33,6 +38,33 @@ function removeAccount(targetAccount, existingAccounts) {
     return {
       operation: CaveatMutatorOperation.updateValue,
       value: newAccounts,
+    };
+  }
+  return { operation: CaveatMutatorOperation.revokePermission };
+}
+
+/**
+ * Removes the target chain ID from the value arrays of all
+ * `restrictNetworkSwitching` caveats. No-ops if the target chain ID is not in
+ * the array, and revokes the parent permission if it's the only chain ID in
+ * the array.
+ *
+ * @param {string} targetChainId - The chain ID to remove from
+ * all network switching permissions.
+ * @param {string[]} existingChainIds - The chain ID array from the
+ * network switching permissions.
+ */
+function removeChainId(targetChainId, existingChainIds) {
+  const newChainIds = existingChainIds.filter(
+    (chainId) => chainId !== targetChainId,
+  );
+
+  if (newChainIds.length === existingChainIds.length) {
+    return { operation: CaveatMutatorOperation.noop };
+  } else if (newChainIds.length > 0) {
+    return {
+      operation: CaveatMutatorOperation.updateValue,
+      value: newChainIds,
     };
   }
   return { operation: CaveatMutatorOperation.revokePermission };

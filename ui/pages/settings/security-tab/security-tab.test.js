@@ -1,28 +1,21 @@
-import {
-  fireEvent,
-  getAllByRole,
-  queryByRole,
-  screen,
-} from '@testing-library/react';
+import { fireEvent, queryByRole, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import configureMockStore from 'redux-mock-store';
 import thunk from 'redux-thunk';
+// TODO: Remove restricted import
+// eslint-disable-next-line import/no-restricted-paths
 import { getEnvironmentType } from '../../../../app/scripts/lib/util';
 import { ENVIRONMENT_TYPE_POPUP } from '../../../../shared/constants/app';
 import mockState from '../../../../test/data/mock-state.json';
 import { tEn } from '../../../../test/lib/i18n-helpers';
 import { renderWithProvider } from '../../../../test/lib/render-helpers';
-import {
-  getIsSecurityAlertsEnabled,
-  getIsTransactionSecurityCheckEnabled,
-} from '../../../selectors';
+import { getIsSecurityAlertsEnabled } from '../../../selectors';
 import SecurityTab from './security-tab.container';
 
+const mockOpenDeleteMetaMetricsDataModal = jest.fn();
+
 const mockSetSecurityAlertsEnabled = jest
-  .fn()
-  .mockImplementation(() => () => undefined);
-const mockSetTransactionSecurityCheckEnabled = jest
   .fn()
   .mockImplementation(() => () => undefined);
 
@@ -38,15 +31,20 @@ jest.mock('../../../../app/scripts/lib/util', () => {
 jest.mock('../../../selectors', () => ({
   ...jest.requireActual('../../../selectors'),
   getIsSecurityAlertsEnabled: jest.fn(),
-  getIsTransactionSecurityCheckEnabled: jest.fn(),
 }));
 
 jest.mock('../../../store/actions', () => ({
   ...jest.requireActual('../../../store/actions'),
   setSecurityAlertsEnabled: (val) => mockSetSecurityAlertsEnabled(val),
-  setTransactionSecurityCheckEnabled: (val) =>
-    mockSetTransactionSecurityCheckEnabled(val),
 }));
+
+jest.mock('../../../ducks/app/app.ts', () => {
+  return {
+    openDeleteMetaMetricsDataModal: () => {
+      return mockOpenDeleteMetaMetricsDataModal;
+    },
+  };
+});
 
 describe('Security Tab', () => {
   mockState.appState.warning = 'warning'; // This tests an otherwise untested render branch
@@ -226,42 +224,32 @@ describe('Security Tab', () => {
     await user.click(screen.getByText(tEn('addCustomNetwork')));
     expect(global.platform.openExtensionInBrowser).toHaveBeenCalled();
   });
+  it('clicks "Delete MetaMetrics Data"', async () => {
+    mockState.metamask.participateInMetaMetrics = true;
+    mockState.metamask.metaMetricsId = 'fake-metametrics-id';
 
+    const localMockStore = configureMockStore([thunk])(mockState);
+    renderWithProvider(<SecurityTab />, localMockStore);
+
+    expect(
+      screen.queryByTestId(`delete-metametrics-data-button`),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete MetaMetrics data' }),
+    );
+
+    expect(mockOpenDeleteMetaMetricsDataModal).toHaveBeenCalled();
+  });
   describe('Blockaid', () => {
     afterEach(() => {
       jest.clearAllMocks();
     });
 
-    it('disables opensea when blockaid is enabled', async () => {
+    it('invokes method setSecurityAlertsEnabled when blockaid is enabled', async () => {
       getIsSecurityAlertsEnabled.mockReturnValue(false);
-      getIsTransactionSecurityCheckEnabled.mockReturnValue(true);
-
       expect(await toggleCheckbox('securityAlert', false)).toBe(true);
-
       expect(mockSetSecurityAlertsEnabled).toHaveBeenCalledWith(true);
-      expect(mockSetTransactionSecurityCheckEnabled).toHaveBeenCalledWith(
-        false,
-      );
-    });
-
-    it('disables blockaid when opensea is enabled', async () => {
-      getIsTransactionSecurityCheckEnabled.mockReturnValue(false);
-      getIsSecurityAlertsEnabled.mockReturnValue(true);
-
-      expect(await toggleCheckbox('transactionSecurityCheck', false)).toBe(
-        true,
-      );
-
-      expect(mockSetSecurityAlertsEnabled).toHaveBeenCalledWith(false);
-      expect(mockSetTransactionSecurityCheckEnabled).toHaveBeenCalledWith(true);
-    });
-
-    it('shows terms of use links', () => {
-      renderWithProvider(<SecurityTab />, mockStore);
-      const container = screen.getByTestId('termsOfUse');
-      expect(
-        getAllByRole(container, 'link', { name: 'Terms of use' })[0],
-      ).toHaveAttribute('href', 'https://opensea.io/securityproviderterms');
     });
   });
 });
